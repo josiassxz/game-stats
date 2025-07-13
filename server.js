@@ -86,8 +86,16 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: process.env.NODE_ENV === 'production' ? 'https://api.brasilserver.com' : `http://localhost:${port}`,
-        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+        url: 'https://game-stats-e908.onrender.com',
+        description: 'Production server'
+      },
+      {
+        url: `http://localhost:${port}`,
+        description: 'Local development server'
+      },
+      {
+        url: `http://apibrasilserver.com:${port}/api-docs/`,
+        description: 'Local development server'
       }
     ],
     tags: [
@@ -728,11 +736,18 @@ process.on('SIGINT', async () => {
 async function startServer() {
   await initializeDatabase();
   
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 Servidor rodando na porta ${port}`);
-    console.log(`📊 API disponível em http://0.0.0.0:${port}`);
-    console.log(`🌐 Acesso externo disponível`);
-    console.log(`📚 Documentação Swagger em http://0.0.0.0:${port}/api-docs`);
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '0.0.0.0';
+  const actualPort = process.env.PORT || port;
+  
+  app.listen(actualPort, host, () => {
+    const serverUrl = process.env.NODE_ENV === 'production' 
+      ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME || 'game-stats-e908.onrender.com'}`
+      : `http://localhost:${actualPort}`;
+      
+    console.log(`🚀 Servidor rodando na porta ${actualPort}`);
+    console.log(`📊 API disponível em ${serverUrl}`);
+    console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📚 Documentação Swagger em ${serverUrl}/api-docs`);
     console.log(`💾 Conectado ao SQL Server: ${process.env.SQL_SERVER_HOST}`);
     console.log(`🎮 Database: ${process.env.SQL_SERVER_DATABASE}`);
   });
