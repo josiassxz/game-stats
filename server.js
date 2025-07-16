@@ -223,8 +223,9 @@ app.get('/api/users', async (req, res) => {
           u.LoseCnt, u.Forfeited, u.KillCnt, u.Assist, u.HeadshotCnt, u.DeadCnt, i.NutShotCnt,
           i.NutShotDeadCnt, u.FirstKill, u.DoubleKillCnt, u.MultiKillCnt, u.UltraKillCnt,
           u.FantasticKillCnt, u.UnbelievableCnt, u.UnbelievablePlusCnt, u.RevengeCnt,
-          u.KillsStreak, u.MostKills, u.BombsPlanted, u.BombsExploded, u.BombsDefused,
-          u.CaptureFlag, u.RecoverFlag, u.ClanWin, u.ClanDraw, u.ClanLose, u.ClanKill, u.ClanDead,
+          u.KillsStreak, u.MostKills, u.BombsPlanted, u.BombsExploded, u.BombsDefused, u.CaptureFlag, u.RecoverFlag,
+          g.oidGuild ClanID, g.strName ClanName, c.Background as BackGroundClan, c.Emblem as EmblemaClan, c.namecolor as NameColorClan, c.ColorEndDate as ColorEndDateClan, u.ClanWin as ClanWinGeral, u.ClanDraw as ClanDrawGeral, u.ClanLose as ClanLoseGeral, u.ClanKill as ClanKillGeral, u.ClanDead as ClanDeadGeral,
+          ci.WinCnt as WinCntClanAtual, ci.LoseCnt as LoseCntClanAtual, ci.DrawCnt as DrawCntClanAtual, ci.KillCnt as KillCntClanAtual, ci.DeadCnt as DeadCntClanAtual, ci.ClanForfeited as ClanForfeitedClanAtual,
           i.SpyKillCnt AS SpyHunt_KillCnt, i.SpyDeadCnt AS SpyHunt_DeadCnt, i.SpyUploading AS SpyHunt_Uploading,
           i.HQPoint, i.SQPoint, i.SaveBullionNum, i.HumanKillCnt AS QRT_KillCnt, i.HumanDeathCnt AS QRT_DeathCnt,
           i.HumanWin AS QRT_HumanWin, i.InfectKillCnt AS QRT_InfectKillCnt, i.InfectDeathCnt AS QRT_InfectDeathCnt,
@@ -241,6 +242,15 @@ app.get('/api/users', async (req, res) => {
           COMBATARMS.dbo.CBT_NXGradeInfo nx ON u.UsedNX BETWEEN nx.MinNX AND nx.MaxNX
       LEFT JOIN
           COMBATARMS.dbo.CBT_UserFakeMark f ON u.oidUser = f.oidUser
+      LEFT JOIN 
+          NX_GuildMaster.dbo.gdt_Member m ON m.oidUser = u.oidUser
+      LEFT JOIN 
+          NX_GuildMaster.dbo.gdt_Guild g ON g.oidGuild = m.oidGuild
+      LEFT JOIN 
+          COMBATARMS.dbo.CBT_ClanInfo c ON c.oiduser_group = g.oidGuild
+      LEFT JOIN 
+          COMBATARMS.dbo.CBT_UserClanInfo ci ON ci.oiduserclan = g.oidGuild and ci.oiduser = u.oidUser
+          
       WHERE 1=1
     `;
 
