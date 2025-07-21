@@ -189,7 +189,7 @@ async function executeQuery(query, params = {}) {
  * @swagger
  * /api/users:
  *   get:
- *     summary: Busca perfis de jogadores por Discord ID ou oidUser
+ *     summary: Busca perfis de jogadores por Discord ID, oidUser ou nickname
  *     tags: [Users]
  *     parameters:
  *       - in: query
@@ -202,6 +202,11 @@ async function executeQuery(query, params = {}) {
  *         schema:
  *           type: string
  *         description: ID único do usuário (oidUser)
+ *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do jogador (busca parcial)
  *     responses:
  *       200:
  *         description: Perfil do jogador
@@ -218,7 +223,7 @@ app.get('/api/users', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { discordid, oidUser } = req.query;
+    const { discordid, oidUser, nickname } = req.query;
     
     let query = `
       SELECT
@@ -271,8 +276,12 @@ app.get('/api/users', async (req, res) => {
       params.oidUser = oidUser;
     }
     
-    // Se não houver filtros, ordena por EXP
-    if (!discordid && !oidUser) {
+    if (nickname) {
+      query += ` AND u.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
+    if (!discordid && !oidUser && !nickname) {
       query += ` ORDER BY u.EXP DESC`;
     }
 
