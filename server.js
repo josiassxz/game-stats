@@ -711,6 +711,96 @@ app.get('/api/stats', async (req, res) => {
 
 /**
  * @swagger
+ * /api/gamemode-stats:
+ *   get:
+ *     summary: Resumo de partidas por mapa e modo dos players
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: oiduser
+ *         schema:
+ *           type: integer
+ *         description: ID do usuário
+ *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do jogador (busca parcial)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
+ *     responses:
+ *       200:
+ *         description: Estatísticas de partidas por mapa e modo
+ */
+app.get('/api/gamemode-stats', async (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  try {
+    const { oiduser, nickname, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
+    
+    let query = `
+      SELECT
+          g.oiduser,
+          u.NickName,
+          map.Name AS map,
+          gm.Name AS mode,
+          t.name AS type,
+          (g.wincnt + g.losecnt) AS qt_partidas,
+          g.wincnt,
+          g.losecnt,
+          g.killcnt,
+          g.deadcnt,
+          CASE 
+              WHEN g.deadcnt = 0 THEN 0 
+              ELSE ((CAST(g.killcnt AS FLOAT)) / (CAST(g.deadcnt AS FLOAT))) 
+          END AS KDR,
+          g.mostkillcnt
+      FROM
+          COMBATARMS.dbo.CBT_UserGameModeInfo g
+      LEFT JOIN COMBATARMS.dbo.CBT_User u ON g.oiduser = u.oidUser
+      LEFT JOIN COMBATARMS.dbo.CBT_GameMap map ON g.MapNo = map.MapID
+      LEFT JOIN COMBATARMS.dbo.CBT_GameMode gm ON gm.Mode = g.GameMode
+      LEFT JOIN COMBATARMS.dbo.CBT_GameModeType t ON gm.ModeType = t.ModeType
+      WHERE 1=1
+    `;
+
+    let params = { offset, size: parseInt(size) };
+    
+    if (oiduser) {
+      query += ` AND g.oiduser = @oiduser`;
+      params.oiduser = parseInt(oiduser);
+    }
+    
+    if (nickname) {
+      query += ` AND u.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
+    query += ` ORDER BY qt_partidas DESC`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
+
+    const results = await executeQuery(query, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/userstore:
  *   get:
  *     summary: Store do usuário
@@ -829,6 +919,7 @@ app.get('/', (req, res) => {
       'GET /api/clans?clanname=<clanname>&page=<page>&size=<size>',
       'GET /api/clanmembers?clanname=<clanname>&page=<page>&size=<size>',
       'GET /api/ranking?type=<exp|kills|wins|money|headshots>&page=<page>&size=<size>',
+      'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/stats',
       'GET /api/userstore?oiduser=<oiduser>&page=<page>&size=<size>',
       'GET /health'
