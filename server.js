@@ -801,6 +801,210 @@ app.get('/api/gamemode-stats', async (req, res) => {
 
 /**
  * @swagger
+ * /api/player-matches:
+ *   get:
+ *     summary: Histórico detalhado de partidas dos jogadores
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: oiduser
+ *         schema:
+ *           type: integer
+ *         description: ID do usuário
+ *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do jogador (busca parcial)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *           example: '2025-07-24 00:00:00'
+ *         description: Data de início do filtro
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *           example: '2025-07-24 23:59:59'
+ *         description: Data de fim do filtro
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
+ *     responses:
+ *       200:
+ *         description: Histórico de partidas com estatísticas detalhadas
+ */
+app.get('/api/player-matches', async (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  try {
+    const { oiduser, nickname, startDate, endDate, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
+    
+    let query = `
+      WITH LogWithPrevious AS (
+          -- Busca a LogDate da partida anterior para cada registro
+          SELECT
+              L.*,
+              (SELECT TOP 1 prev_L.LogDate
+               FROM COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog prev_L
+               WHERE prev_L.oidUser = L.oidUser AND prev_L.LogDate < L.LogDate AND prev_L.ErrorCode_MainProc = 0
+               ORDER BY prev_L.LogDate DESC) AS PreviousLogDate
+          FROM
+              COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog L
+          WHERE
+              L.ErrorCode_MainProc = 0
+      ),
+      DailyMatchAndExpStats AS (
+          -- Calcula o número de partidas e o total de EXP ganho por usuário por dia,
+          -- e identifica o LogID da primeira e última partida do dia.
+          SELECT
+              oidUser,
+              CAST(LogDate AS DATE) AS GameDay,
+              COUNT(*) AS MatchesOnThisDay,
+              SUM(User_Exp_After - User_Exp_Before) AS TotalExpGainedOnThisDay,
+              MIN(LogID) as FirstLogIDOnDay, -- Assumindo LogID é sequencial e crescente com LogDate
+              MAX(LogID) as LastLogIDOnDay
+          FROM COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog
+          WHERE ErrorCode_MainProc = 0
+          GROUP BY
+              oidUser, CAST(LogDate AS DATE)
+      ),
+      DailyBoundaryExpAndGrade AS (
+          -- Busca a EXP no início e fim do dia e a patente correspondente
+          SELECT
+              dms.oidUser,
+              dms.GameDay,
+              dms.MatchesOnThisDay,
+              dms.TotalExpGainedOnThisDay,
+              first_log.User_Exp_Before AS ExpAtStartOfDay,
+              last_log.User_Exp_After AS ExpAtEndOfDay,
+              g_start.GradeName AS GradeNameAtStartOfDay,
+              g_end.GradeName AS GradeNameAtEndOfDay,
+              g_start.GradeLevel AS GradeLevelAtStartOfDay, -- Assumindo que CBT_GradeInfo tem GradeLevel
+              g_end.GradeLevel AS GradeLevelAtEndOfDay     -- Assumindo que CBT_GradeInfo tem GradeLevel
+          FROM DailyMatchAndExpStats dms
+          JOIN COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog first_log ON dms.FirstLogIDOnDay = first_log.LogID
+          JOIN COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog last_log ON dms.LastLogIDOnDay = last_log.LogID
+          LEFT JOIN COMBATARMS.dbo.CBT_GradeInfo g_start ON first_log.User_Exp_Before >= g_start.MinExp AND first_log.User_Exp_Before <= g_start.MaxExp
+          LEFT JOIN COMBATARMS.dbo.CBT_GradeInfo g_end ON last_log.User_Exp_After >= g_end.MinExp AND last_log.User_Exp_After <= g_end.MaxExp
+      ),
+      ActivePlayersRanked AS (
+          -- Ranking atual de todos os jogadores ativos baseado na EXP de CBT_User
+          SELECT
+              U.oidUser,
+              U.Exp AS CurrentUserExp,
+              RANK() OVER (ORDER BY U.Exp DESC) AS OverallCurrentRank
+          FROM
+              COMBATARMS.dbo.CBT_User U
+          JOIN
+              COMBATARMS.dbo.CBT_UserAuth UA ON U.oidUser = UA.oidUser
+          WHERE
+              (UA.BlockEndDate IS NULL OR UA.BlockEndDate < GETDATE()) -- Apenas jogadores ativos
+      )
+      SELECT
+          UA.strDiscordID,
+          L.oidUser,
+          UA.strNexonID,
+          U.NickName,
+          L.LogDate AS DataHoraPartida,
+          GI.GradeName AS PatenteNaPartida, -- Patente ao final desta partida específica
+          GMODE.Name AS NomeDoModo,
+          GMAP.Name AS NomeDoMapa,
+          (L.User_Exp_After - L.User_Exp_Before) AS ExpGanhaNestaPartida,
+          (L.User_Money_After - L.User_Money_Before) AS GPGanhoNestaPartida,
+          L.Input_KillCnt AS KillsNaPartida,
+          L.Input_DeadCnt AS MortesNaPartida,
+          L.Input_HeadShotCnt AS HeadshotsNaPartida,
+          CASE L.Input_isWin WHEN 0 THEN 'Derrota' WHEN 1 THEN 'Vitória' WHEN 2 THEN 'Empate' ELSE 'Desconhecido' END AS ResultadoPartida,
+          CASE
+              WHEN LPREV.PreviousLogDate IS NOT NULL THEN
+                  CAST(DATEDIFF(HOUR, LPREV.PreviousLogDate, L.LogDate) AS VARCHAR(10)) + 'h ' +
+                  CAST(DATEDIFF(MINUTE, LPREV.PreviousLogDate, L.LogDate) % 60 AS VARCHAR(2)) + 'm ' +
+                  CAST(DATEDIFF(SECOND, LPREV.PreviousLogDate, L.LogDate) % 60 AS VARCHAR(2)) + 's'
+              ELSE 'N/A (Primeira partida logada)'
+          END AS TempoDesdeUltimaPartida,
+          DSEG.MatchesOnThisDay AS PartidasNesteDia,
+          DSEG.TotalExpGainedOnThisDay AS ExpTotalNoDia,
+          (DSEG.GradeLevelAtEndOfDay - DSEG.GradeLevelAtStartOfDay) AS PatentesUpadasNoDia,
+          DSEG.ExpAtStartOfDay,
+          DSEG.ExpAtEndOfDay,
+          -- Ranking Aproximado (comparando EXP do log com EXP atual de outros jogadores ativos)
+          (SELECT COUNT(DISTINCT other_players.oidUser) + 1 FROM ActivePlayersRanked other_players WHERE other_players.CurrentUserExp > DSEG.ExpAtStartOfDay) AS RankingAprox_InicioDia,
+          (SELECT COUNT(DISTINCT other_players.oidUser) + 1 FROM ActivePlayersRanked other_players WHERE other_players.CurrentUserExp > L.User_Exp_After) AS RankingAprox_AposPartida,
+          APR.OverallCurrentRank AS RankingExpGeralAtual -- Ranking do jogador baseado na sua EXP total atual em CBT_User
+      FROM
+          COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog L
+      INNER JOIN
+          LogWithPrevious LPREV ON L.LogID = LPREV.LogID
+      LEFT JOIN
+          DailyBoundaryExpAndGrade DSEG ON L.oidUser = DSEG.oidUser AND CAST(L.LogDate AS DATE) = DSEG.GameDay
+      LEFT JOIN
+          COMBATARMS.dbo.CBT_User U ON L.oidUser = U.oidUser
+      LEFT JOIN
+          COMBATARMS.dbo.CBT_UserAuth UA ON L.oidUser = UA.oidUser
+      LEFT JOIN
+          COMBATARMS.dbo.CBT_GradeInfo GI ON L.User_Exp_After >= GI.MinExp AND L.User_Exp_After <= GI.MaxExp -- Patente no momento desta partida
+      LEFT JOIN
+          COMBATARMS.dbo.CBT_GameMap GMAP ON L.Input_MapNo = GMAP.MapID
+      LEFT JOIN
+          COMBATARMS.dbo.CBT_GameMode GMODE ON L.Input_GameMode = GMODE.Mode
+      LEFT JOIN
+          ActivePlayersRanked APR ON L.oidUser = APR.oidUser -- Para pegar o ranking geral atual do jogador
+      WHERE
+          L.ErrorCode_MainProc = 0
+    `;
+
+    let params = { offset, size: parseInt(size) };
+    
+    if (oiduser) {
+      query += ` AND L.oidUser = @oiduser`;
+      params.oiduser = parseInt(oiduser);
+    }
+    
+    if (nickname) {
+      query += ` AND U.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
+    if (startDate && endDate) {
+      query += ` AND L.LogDate BETWEEN @startDate AND @endDate`;
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (startDate) {
+      query += ` AND L.LogDate >= @startDate`;
+      params.startDate = startDate;
+    } else if (endDate) {
+      query += ` AND L.LogDate <= @endDate`;
+      params.endDate = endDate;
+    }
+    
+    query += ` ORDER BY L.LogDate DESC`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
+
+    const results = await executeQuery(query, params);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/userstore:
  *   get:
  *     summary: Store do usuário
@@ -920,6 +1124,7 @@ app.get('/', (req, res) => {
       'GET /api/clanmembers?clanname=<clanname>&page=<page>&size=<size>',
       'GET /api/ranking?type=<exp|kills|wins|money|headshots>&page=<page>&size=<size>',
       'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/player-matches?oiduser=<oiduser>&nickname=<nickname>&startDate=<startDate>&endDate=<endDate>&page=<page>&size=<size>',
       'GET /api/stats',
       'GET /api/userstore?oiduser=<oiduser>&page=<page>&size=<size>',
       'GET /health'
