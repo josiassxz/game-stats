@@ -207,6 +207,18 @@ async function executeQuery(query, params = {}) {
  *         schema:
  *           type: string
  *         description: Nickname do jogador (busca parcial)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
  *     responses:
  *       200:
  *         description: Perfil do jogador
@@ -223,7 +235,8 @@ app.get('/api/users', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { discordid, oidUser, nickname } = req.query;
+    const { discordid, oidUser, nickname, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
       SELECT
@@ -264,7 +277,7 @@ app.get('/api/users', async (req, res) => {
       WHERE 1=1
     `;
 
-    let params = {};
+    let params = { offset, size: parseInt(size) };
     
     if (discordid) {
       query += ` AND a.strDiscordID = @discordid`;
@@ -281,9 +294,8 @@ app.get('/api/users', async (req, res) => {
       params.nickname = `%${nickname}%`;
     }
     
-    if (!discordid && !oidUser && !nickname) {
-      query += ` ORDER BY u.EXP DESC`;
-    }
+    query += ` ORDER BY u.EXP DESC`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
     res.json(results);
@@ -304,6 +316,18 @@ app.get('/api/users', async (req, res) => {
  *         schema:
  *           type: string
  *         description: Discord ID do jogador
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
  *     responses:
  *       200:
  *         description: Inventário do jogador
@@ -314,7 +338,8 @@ app.get('/api/inventory', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { discordid } = req.query;
+    const { discordid, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
       SELECT
@@ -356,11 +381,14 @@ app.get('/api/inventory', async (req, res) => {
       WHERE 1=1
     `;
 
-    let params = {};
+    let params = { offset, size: parseInt(size) };
     if (discordid) {
       query += ` AND a.strDiscordID = @discordid`;
       params.discordid = discordid;
     }
+    
+    query += ` ORDER BY e.oidUser`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
     res.json(results);
@@ -381,6 +409,18 @@ app.get('/api/inventory', async (req, res) => {
  *         schema:
  *           type: string
  *         description: Nome do clã
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
  *     responses:
  *       200:
  *         description: Lista de clãs
@@ -391,7 +431,8 @@ app.get('/api/clans', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { clanname } = req.query;
+    const { clanname, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
       SELECT
@@ -400,6 +441,8 @@ app.get('/api/clans', async (req, res) => {
           cu.NickName AS Lider,
           gg.oidGuild,
           gg.strName AS nm_clan,
+          c.Point,
+          c.Exp,
           (SELECT COUNT(DISTINCT oidUser) FROM NX_GuildMaster.dbo.gdt_Member WHERE oidGuild = gg.oidGuild) AS qt_membros,
           c.Emblem,
           c.Background,
@@ -443,13 +486,14 @@ app.get('/api/clans', async (req, res) => {
       WHERE 1=1
     `;
 
-    let params = {};
+    let params = { offset, size: parseInt(size) };
     if (clanname) {
       query += ` AND gg.strName = @clanname`;
       params.clanname = clanname;
-    } else {
-      query += ` ORDER BY qt_membros DESC`;
     }
+    
+    query += ` ORDER BY c.Exp DESC, c.Point DESC`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
     res.json(results);
@@ -471,6 +515,18 @@ app.get('/api/clans', async (req, res) => {
  *         schema:
  *           type: string
  *         description: Nome do clã
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
  *     responses:
  *       200:
  *         description: Lista de membros
@@ -481,7 +537,8 @@ app.get('/api/clanmembers', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { clanname } = req.query;
+    const { clanname, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
 
     if (!clanname) {
       return res.status(400).json({ error: "O parâmetro 'clanname' é obrigatório." });
@@ -516,9 +573,10 @@ app.get('/api/clanmembers', async (req, res) => {
           g.strName = @clanname
       ORDER BY
           cd_cargo, m.dateCreated
+      OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY
     `;
 
-    const results = await executeQuery(query, { clanname });
+    const results = await executeQuery(query, { clanname, offset, size: parseInt(size) });
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -542,7 +600,19 @@ app.get('/api/clanmembers', async (req, res) => {
  *         name: limit
  *         schema:
  *           type: integer
- *         description: Limite de resultados
+ *         description: Limite de resultados (deprecated, use page e size)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Tamanho da página
  *     responses:
  *       200:
  *         description: Lista de jogadores
@@ -553,7 +623,9 @@ app.get('/api/ranking', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { type = 'exp', limit = 50 } = req.query;
+    const { type = 'exp', limit = 50, page = 1, size = 50 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
+    const pageSize = size ? parseInt(size) : parseInt(limit);
     
     let orderBy = 'u.EXP';
     switch(type.toLowerCase()) {
@@ -574,7 +646,7 @@ app.get('/api/ranking', async (req, res) => {
     }
 
     const query = `
-      SELECT TOP (@limit)
+      SELECT
           u.oiduser, u.NickName, u.EXP, r.GradeName, u.Money, u.PlayRoundCnt, 
           u.WinCnt, u.LoseCnt, u.KillCnt, u.DeadCnt, u.HeadshotCnt,
           CASE 
@@ -591,9 +663,10 @@ app.get('/api/ranking', async (req, res) => {
           COMBATARMS.dbo.CBT_GradeInfo r ON u.Exp BETWEEN r.MinExp AND r.MaxExp
       WHERE u.NickName IS NOT NULL AND u.NickName != ''
       ORDER BY ${orderBy} DESC
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 
-    const results = await executeQuery(query, { limit: parseInt(limit) });
+    const results = await executeQuery(query, { offset, pageSize });
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -648,6 +721,18 @@ app.get('/api/stats', async (req, res) => {
  *         schema:
  *           type: integer
  *         description: ID do usuário
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Tamanho da página
  *     responses:
  *       200:
  *         description: Items da store
@@ -658,7 +743,8 @@ app.get('/api/userstore', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { oiduser } = req.query;
+    const { oiduser, page = 1, size = 20 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
       SELECT UserStoreSeqNo, OidUser, ProductID, ProductNo, GiftType, ConfirmType, 
@@ -668,13 +754,14 @@ app.get('/api/userstore', async (req, res) => {
       WHERE 1=1
     `;
 
-    let params = {};
+    let params = { offset, size: parseInt(size) };
     if (oiduser) {
       query += ` AND OidUser = @oiduser`;
       params.oiduser = parseInt(oiduser);
     }
 
     query += ` ORDER BY RecvDate DESC`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
     res.json(results);
@@ -737,13 +824,13 @@ app.get('/', (req, res) => {
     database: 'SQL Server',
     documentation: '/api-docs',
     endpoints: [
-      'GET /api/users?discordid=<discordid>',
-      'GET /api/inventory?discordid=<discordid>',
-      'GET /api/clans?clanname=<clanname>',
-      'GET /api/clanmembers?clanname=<clanname>',
-      'GET /api/ranking?type=<exp|kills|wins|money|headshots>&limit=<number>',
+      'GET /api/users?discordid=<discordid>&page=<page>&size=<size>',
+      'GET /api/inventory?discordid=<discordid>&page=<page>&size=<size>',
+      'GET /api/clans?clanname=<clanname>&page=<page>&size=<size>',
+      'GET /api/clanmembers?clanname=<clanname>&page=<page>&size=<size>',
+      'GET /api/ranking?type=<exp|kills|wins|money|headshots>&page=<page>&size=<size>',
       'GET /api/stats',
-      'GET /api/userstore?oiduser=<oiduser>',
+      'GET /api/userstore?oiduser=<oiduser>&page=<page>&size=<size>',
       'GET /health'
     ]
   });
