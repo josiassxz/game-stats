@@ -317,6 +317,11 @@ app.get('/api/users', async (req, res) => {
  *           type: string
  *         description: Discord ID do jogador
  *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do jogador (busca parcial)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -338,7 +343,7 @@ app.get('/api/inventory', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { discordid, page = 1, size = 20 } = req.query;
+    const { discordid, nickname, page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
@@ -387,6 +392,11 @@ app.get('/api/inventory', async (req, res) => {
       params.discordid = discordid;
     }
     
+    if (nickname) {
+      query += ` AND u.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
     query += ` ORDER BY e.oidUser`;
     query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
@@ -410,6 +420,11 @@ app.get('/api/inventory', async (req, res) => {
  *           type: string
  *         description: Nome do clã
  *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do líder do clã (busca parcial)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -431,7 +446,7 @@ app.get('/api/clans', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { clanname, page = 1, size = 20 } = req.query;
+    const { clanname, nickname, page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
@@ -492,6 +507,11 @@ app.get('/api/clans', async (req, res) => {
       params.clanname = clanname;
     }
     
+    if (nickname) {
+      query += ` AND cu.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
     query += ` ORDER BY c.Exp DESC, c.Point DESC`;
     query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
@@ -516,6 +536,11 @@ app.get('/api/clans', async (req, res) => {
  *           type: string
  *         description: Nome do clã
  *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do membro (busca parcial)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -537,14 +562,14 @@ app.get('/api/clanmembers', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { clanname, page = 1, size = 20 } = req.query;
+    const { clanname, nickname, page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
 
     if (!clanname) {
       return res.status(400).json({ error: "O parâmetro 'clanname' é obrigatório." });
     }
 
-    const query = `
+    let query = `
       SELECT
           m.oidGuild,
           g.strName AS NomeClan,
@@ -571,12 +596,19 @@ app.get('/api/clanmembers', async (req, res) => {
           COMBATARMS.dbo.CBT_UserAuth a ON a.oidUser = m.oidUser
       WHERE
           g.strName = @clanname
-      ORDER BY
-          cd_cargo, m.dateCreated
-      OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY
     `;
 
-    const results = await executeQuery(query, { clanname, offset, size: parseInt(size) });
+    let params = { clanname, offset, size: parseInt(size) };
+    
+    if (nickname) {
+      query += ` AND m.dn_strCharacterName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
+    query += ` ORDER BY cd_cargo, m.dateCreated`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
+
+    const results = await executeQuery(query, params);
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -596,6 +628,18 @@ app.get('/api/clanmembers', async (req, res) => {
  *           type: string
  *           enum: [exp, kills, wins, money, headshots]
  *         description: Tipo de ranking
+ *       - in: query
+ *         name: orderby
+ *         schema:
+ *           type: string
+ *           enum: [desc, asc]
+ *           default: desc
+ *         description: Ordem de classificação (desc ou asc)
+ *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do jogador (busca parcial)
  *       - in: query
  *         name: limit
  *         schema:
@@ -623,9 +667,10 @@ app.get('/api/ranking', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { type = 'exp', limit = 50, page = 1, size = 50 } = req.query;
+    const { type = 'exp', orderby = 'desc', nickname, limit = 50, page = 1, size = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
     const pageSize = size ? parseInt(size) : parseInt(limit);
+    const orderDirection = orderby.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
     
     let orderBy = 'u.EXP';
     switch(type.toLowerCase()) {
@@ -645,28 +690,50 @@ app.get('/api/ranking', async (req, res) => {
         orderBy = 'u.EXP';
     }
 
-    const query = `
-      SELECT
-          u.oiduser, u.NickName, u.EXP, r.GradeName, u.Money, u.PlayRoundCnt, 
-          u.WinCnt, u.LoseCnt, u.KillCnt, u.DeadCnt, u.HeadshotCnt,
-          CASE 
-              WHEN u.DeadCnt > 0 THEN ROUND(CAST(u.KillCnt AS FLOAT) / u.DeadCnt, 2) 
-              ELSE u.KillCnt 
-          END AS KDRatio,
-          CASE 
-              WHEN u.PlayRoundCnt > 0 THEN ROUND((CAST(u.WinCnt AS FLOAT) / u.PlayRoundCnt) * 100, 2) 
-              ELSE 0 
-          END AS WinRate
-      FROM
-          COMBATARMS.dbo.CBT_User u
-      LEFT JOIN
-          COMBATARMS.dbo.CBT_GradeInfo r ON u.Exp BETWEEN r.MinExp AND r.MaxExp
-      WHERE u.NickName IS NOT NULL AND u.NickName != ''
-      ORDER BY ${orderBy} DESC
-      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    let query = `
+      SELECT 
+           a.strDiscordID, a.strNexonID, u.oiduser, u.NickName, f.NationEmblem AS nr_MarcaBatalha, a.BlockEndDate DataFimBan, case when a.BlockEndDate > GETDATE() then 'Sim' else 'Não' end BanVigente, 
+           u.UsedNX, nx.NXGradeName, u.NickNameColor, u.ColorEndDate, g.strName clanName, u.SuperRoomMaster, u.AgreeCnt, 
+           u.DisagreeCnt, u.KickedCnt, u.EXP, r.GradeName, u.Money, u.PlayRoundCnt, u.WinCnt, 
+           u.LoseCnt, u.Forfeited, u.KillCnt, u.Assist, u.HeadshotCnt, u.DeadCnt, i.NutShotCnt, 
+           i.NutShotDeadCnt, u.FirstKill, u.DoubleKillCnt, u.MultiKillCnt, u.UltraKillCnt, 
+           u.FantasticKillCnt, u.UnbelievableCnt, u.UnbelievablePlusCnt, u.RevengeCnt, 
+           u.KillsStreak, u.MostKills, u.BombsPlanted, u.BombsExploded, u.BombsDefused, 
+           u.CaptureFlag, u.RecoverFlag, u.ClanWin, u.ClanDraw, u.ClanLose, u.ClanKill, u.ClanDead, 
+           i.SpyKillCnt AS SpyHunt_KillCnt, i.SpyDeadCnt AS SpyHunt_DeadCnt, i.SpyUploading AS SpyHunt_Uploading, 
+           i.HQPoint, i.SQPoint, i.SaveBullionNum, i.HumanKillCnt AS QRT_KillCnt, i.HumanDeathCnt AS QRT_DeathCnt, 
+           i.HumanWin AS QRT_HumanWin, i.InfectKillCnt AS QRT_InfectKillCnt, i.InfectDeathCnt AS QRT_InfectDeathCnt, 
+           i.InfectWin AS QRT_InfectWin, i.QuaRanTinePlayNum AS QRT_PlayNum 
+       FROM 
+           COMBATARMS.dbo.CBT_User u 
+       LEFT JOIN 
+           NX_GUILDMASTER.dbo.gdt_Member m ON m.oidUser = u.oidUser 
+       LEFT JOIN 
+           NX_GUILDMASTER.dbo.gdt_Guild g ON g.oidGuild = m.oidGuild 
+       LEFT JOIN 
+           COMBATARMS.dbo.CBT_GradeInfo r ON u.Exp BETWEEN r.MinExp AND r.MaxExp 
+       LEFT JOIN 
+           COMBATARMS.dbo.CBT_UserAuth a ON u.oidUser = a.oidUser 
+       LEFT JOIN 
+           COMBATARMS.dbo.CBT_UserDetailInfo i ON u.oidUser = i.oidUser 
+       LEFT JOIN 
+           COMBATARMS.dbo.CBT_NXGradeInfo nx ON u.UsedNX BETWEEN nx.MinNX AND nx.MaxNX 
+       LEFT JOIN 
+           COMBATARMS.dbo.CBT_UserFakeMark f ON u.oidUser = f.oidUser 
+       WHERE 1=1
     `;
 
-    const results = await executeQuery(query, { offset, pageSize });
+    let params = { offset, pageSize };
+    
+    if (nickname) {
+      query += ` AND u.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
+    
+    query += ` ORDER BY ${orderBy} ${orderDirection}`;
+    query += ` OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`;
+
+    const results = await executeQuery(query, params);
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -934,6 +1001,11 @@ app.get('/api/player-matches', async (req, res) => {
  *           type: integer
  *         description: ID do usuário
  *       - in: query
+ *         name: nickname
+ *         schema:
+ *           type: string
+ *         description: Nickname do jogador (busca parcial)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -955,24 +1027,30 @@ app.get('/api/userstore', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { oiduser, page = 1, size = 20 } = req.query;
+    const { oiduser, nickname, page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
-      SELECT UserStoreSeqNo, OidUser, ProductID, ProductNo, GiftType, ConfirmType, 
-             InventorySeqno, UseDate, SendOidUser, SendNickname, Message, RecvDate, 
-             orderno, ordernofaillog, enddate 
-      FROM COMBATARMS.dbo.CBT_UserStore
+      SELECT s.UserStoreSeqNo, s.OidUser, u.NickName, s.ProductID, s.ProductNo, s.GiftType, s.ConfirmType, 
+             s.InventorySeqno, s.UseDate, s.SendOidUser, s.SendNickname, s.Message, s.RecvDate, 
+             s.orderno, s.ordernofaillog, s.enddate 
+      FROM COMBATARMS.dbo.CBT_UserStore s
+      LEFT JOIN COMBATARMS.dbo.CBT_User u ON s.OidUser = u.oidUser
       WHERE 1=1
     `;
 
     let params = { offset, size: parseInt(size) };
     if (oiduser) {
-      query += ` AND OidUser = @oiduser`;
+      query += ` AND s.OidUser = @oiduser`;
       params.oiduser = parseInt(oiduser);
     }
+    
+    if (nickname) {
+      query += ` AND u.NickName LIKE @nickname`;
+      params.nickname = `%${nickname}%`;
+    }
 
-    query += ` ORDER BY RecvDate DESC`;
+    query += ` ORDER BY s.RecvDate DESC`;
     query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
@@ -1036,15 +1114,15 @@ app.get('/', (req, res) => {
     database: 'SQL Server',
     documentation: '/api-docs',
     endpoints: [
-      'GET /api/users?discordid=<discordid>&page=<page>&size=<size>',
-      'GET /api/inventory?discordid=<discordid>&page=<page>&size=<size>',
-      'GET /api/clans?clanname=<clanname>&page=<page>&size=<size>',
-      'GET /api/clanmembers?clanname=<clanname>&page=<page>&size=<size>',
-      'GET /api/ranking?type=<exp|kills|wins|money|headshots>&page=<page>&size=<size>',
+      'GET /api/users?discordid=<discordid>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/inventory?discordid=<discordid>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/clans?clanname=<clanname>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/clanmembers?clanname=<clanname>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/ranking?type=<exp|kills|wins|money|headshots>&orderby=<desc|asc>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/player-matches?oiduser=<oiduser>&nickname=<nickname>&startDate=<startDate>&endDate=<endDate>&page=<page>&size=<size>',
       'GET /api/stats',
-      'GET /api/userstore?oiduser=<oiduser>&page=<page>&size=<size>',
+      'GET /api/userstore?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /health'
     ]
   });
