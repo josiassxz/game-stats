@@ -863,24 +863,26 @@ app.get('/api/gamemode-stats', async (req, res) => {
     left join CBT_User u on g.oiduser  = u.oidUser 
     left join CBT_GameMap map on g.MapNo = map.MapID 
     left join CBT_GameMode gm on gm.Mode = g.GameMode 
-    left join CBT_GameModeType t on gm.ModeType = t.ModeType 
-
-    order by qt_exp desc
-    `;
+    left join CBT_GameModeType t on gm.ModeType = t.ModeType`;
 
     let params = { offset, size: parseInt(size) };
+    let whereConditions = [];
     
     if (oiduser) {
-      query += ` AND g.oiduser = @oiduser`;
+      whereConditions.push('g.oiduser = @oiduser');
       params.oiduser = parseInt(oiduser);
     }
     
     if (nickname) {
-      query += ` AND u.NickName LIKE @nickname`;
+      whereConditions.push('u.NickName LIKE @nickname');
       params.nickname = `%${nickname}%`;
     }
     
-    query += ` ORDER BY qt_partidas DESC`;
+    if (whereConditions.length > 0) {
+      query += ` WHERE ` + whereConditions.join(' AND ');
+    }
+    
+    query += ` ORDER BY qt_exp DESC`;
     query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
