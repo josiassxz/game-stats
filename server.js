@@ -819,29 +819,53 @@ app.get('/api/gamemode-stats', async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(size);
     
     let query = `
-      SELECT
-          g.oiduser,
-          u.NickName,
-          map.Name AS map,
-          gm.Name AS mode,
-          t.name AS type,
-          (g.wincnt + g.losecnt) AS qt_partidas,
-          g.wincnt,
-          g.losecnt,
-          g.killcnt,
-          g.deadcnt,
-          CASE 
-              WHEN g.deadcnt = 0 THEN 0 
-              ELSE ((CAST(g.killcnt AS FLOAT)) / (CAST(g.deadcnt AS FLOAT))) 
-          END AS KDR,
-          g.mostkillcnt
-      FROM
-          COMBATARMS.dbo.CBT_UserGameModeInfo g
-      LEFT JOIN COMBATARMS.dbo.CBT_User u ON g.oiduser = u.oidUser
-      LEFT JOIN COMBATARMS.dbo.CBT_GameMap map ON g.MapNo = map.MapID
-      LEFT JOIN COMBATARMS.dbo.CBT_GameMode gm ON gm.Mode = g.GameMode
-      LEFT JOIN COMBATARMS.dbo.CBT_GameModeType t ON gm.ModeType = t.ModeType
-      WHERE 1=1
+      select 
+    g.oiduser,
+    u.NickName,
+    map.Name map,
+    gm.Name mode,
+    t.name type,
+    (g.wincnt + g.losecnt) qt_partidas,
+    g.wincnt,
+    g.losecnt,
+    g.killcnt,
+    (select sum(input_HeadshotCnt)
+    from COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog l
+    where l.oidUser = g.oidUser
+    and l.Input_GameMode = g.GameMode
+    and l.Input_MapNo = g.MapNo) HeadshotCnt,
+
+    case when g.killcnt <> 0 then 
+    ((CAST ((select sum(input_HeadshotCnt)
+    from COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog l
+    where l.oidUser = g.oidUser
+    and l.Input_GameMode = g.GameMode
+    and l.Input_MapNo = g.MapNo) as float)) / g.killcnt) * 100 else 0 end HeadshotRate,
+
+    g.deadcnt,
+    case when g.deadcnt = 0 then 0 else ((CAST(g.killcnt as float)) / (CAST(g.deadcnt as float))) end as KDR,
+    g.mostkillcnt,
+
+    (select sum(input_Exp)
+    from COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog l
+    where l.oidUser = g.oidUser
+    and l.Input_GameMode = g.GameMode
+    and l.Input_MapNo = g.MapNo) qt_exp,
+
+    (select sum(input_Money)
+    from COMBATARMS_LOG.dbo.BST_CharacterInfoUpdateLog l
+    where l.oidUser = g.oidUser
+    and l.Input_GameMode = g.GameMode
+    and l.Input_MapNo = g.MapNo) qt_gp
+
+
+    from CBT_UserGameModeInfo g
+    left join CBT_User u on g.oiduser  = u.oidUser 
+    left join CBT_GameMap map on g.MapNo = map.MapID 
+    left join CBT_GameMode gm on gm.Mode = g.GameMode 
+    left join CBT_GameModeType t on gm.ModeType = t.ModeType 
+
+    order by qt_exp desc
     `;
 
     let params = { offset, size: parseInt(size) };
