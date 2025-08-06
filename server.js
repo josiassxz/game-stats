@@ -418,12 +418,26 @@ app.get('/api/inventory', async (req, res) => {
  *         name: clanname
  *         schema:
  *           type: string
- *         description: Nome do clã
+ *         description: Nome do clã (busca parcial)
  *       - in: query
  *         name: nickname
  *         schema:
  *           type: string
  *         description: Nickname do líder do clã (busca parcial)
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [Point, Exp, qt_membros, ElimWinRate, SNDWinRate, ElimProWinRate, CTFWinRate, CaptureFlagCnt, ForfeitedCnt]
+ *           default: Exp
+ *         description: Campo para ordenação
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Ordem da classificação (asc ou desc)
  *       - in: query
  *         name: page
  *         schema:
@@ -446,8 +460,24 @@ app.get('/api/clans', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { clanname, nickname, page = 1, size = 20 } = req.query;
+    const { clanname, nickname, sortBy = 'Exp', sortOrder = 'desc', page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
+    
+    // Validar campos de ordenação permitidos
+    const allowedSortFields = {
+      'Point': 'c.Point',
+      'Exp': 'c.Exp',
+      'qt_membros': 'qt_membros',
+      'ElimWinRate': 'ElimWinRate',
+      'SNDWinRate': 'SNDWinRate',
+      'ElimProWinRate': 'ElimProWinRate',
+      'CTFWinRate': 'CTFWinRate',
+      'CaptureFlagCnt': 'c.CaptureFlagCnt',
+      'ForfeitedCnt': 'c.ForfeitedCnt'
+    };
+    
+    const sortField = allowedSortFields[sortBy] || 'c.Exp';
+    const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
     
     let query = `
       SELECT
@@ -502,9 +532,11 @@ app.get('/api/clans', async (req, res) => {
     `;
 
     let params = { offset, size: parseInt(size) };
+    
+    // Busca parcial por nome do clã
     if (clanname) {
-      query += ` AND gg.strName = @clanname`;
-      params.clanname = clanname;
+      query += ` AND gg.strName LIKE @clanname`;
+      params.clanname = `%${clanname}%`;
     }
     
     if (nickname) {
@@ -512,7 +544,19 @@ app.get('/api/clans', async (req, res) => {
       params.nickname = `%${nickname}%`;
     }
     
-    query += ` ORDER BY c.Exp DESC, c.Point DESC`;
+    // Aplicar ordenação dinâmica
+    query += ` ORDER BY ${sortField} ${order}`;
+    
+    // Se não estiver ordenando por Exp, adicionar Exp como critério secundário
+    if (sortBy !== 'Exp') {
+      query += `, c.Exp DESC`;
+    }
+    
+    // Se não estiver ordenando por Point, adicionar Point como critério terciário
+    if (sortBy !== 'Point' && sortBy !== 'Exp') {
+      query += `, c.Point DESC`;
+    }
+    
     query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
@@ -1142,7 +1186,7 @@ app.get('/', (req, res) => {
     endpoints: [
       'GET /api/users?discordid=<discordid>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/inventory?discordid=<discordid>&nickname=<nickname>&page=<page>&size=<size>',
-      'GET /api/clans?clanname=<clanname>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/clans?clanname=<clanname>&nickname=<nickname>&sortBy=<sortBy>&sortOrder=<sortOrder>&page=<page>&size=<size>',
       'GET /api/clanmembers?clanname=<clanname>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/ranking?type=<exp|kills|wins|money|headshots>&orderby=<desc|asc>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
