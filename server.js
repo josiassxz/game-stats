@@ -842,6 +842,16 @@ app.get('/api/stats', async (req, res) => {
  *           type: string
  *         description: Nickname do jogador (busca parcial)
  *       - in: query
+ *         name: map
+ *         schema:
+ *           type: string
+ *         description: Nome do mapa (busca parcial)
+ *       - in: query
+ *         name: mode
+ *         schema:
+ *           type: string
+ *         description: Nome do modo de jogo (busca parcial)
+ *       - in: query
  *         name: sortBy
  *         schema:
  *           type: string
@@ -877,7 +887,7 @@ app.get('/api/gamemode-stats', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { oiduser, nickname, sortBy = 'qt_exp', sortOrder = 'desc', page = 1, size = 20 } = req.query;
+    const { oiduser, nickname, map, mode, sortBy = 'qt_exp', sortOrder = 'desc', page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
     
     // Validar campos de ordenação permitidos
@@ -956,6 +966,18 @@ app.get('/api/gamemode-stats', async (req, res) => {
     if (nickname) {
       whereConditions.push('u.NickName LIKE @nickname');
       params.nickname = `%${nickname}%`;
+    }
+    
+    // Filtro por mapa
+    if (map) {
+      whereConditions.push('map.Name LIKE @map');
+      params.map = `%${map}%`;
+    }
+    
+    // Filtro por modo
+    if (mode) {
+      whereConditions.push('gm.Name LIKE @mode');
+      params.mode = `%${mode}%`;
     }
     
     if (whereConditions.length > 0) {
@@ -1232,7 +1254,7 @@ app.get('/', (req, res) => {
       'GET /api/clans?clanname=<clanname>&nickname=<nickname>&sortBy=<sortBy>&sortOrder=<sortOrder>&page=<page>&size=<size>',
       'GET /api/clanmembers?clanname=<clanname>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/ranking?type=<exp|kills|wins|money|headshots>&orderby=<desc|asc>&nickname=<nickname>&page=<page>&size=<size>',
-      'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&sortBy=<sortBy>&orderBy=<orderBy>&page=<page>&size=<size>',
+      'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&map=<map>&mode=<mode>&sortBy=<sortBy>&orderBy=<orderBy>&page=<page>&size=<size>',
       'GET /api/player-matches?oiduser=<oiduser>&nickname=<nickname>&startDate=<startDate>&endDate=<endDate>&page=<page>&size=<size>',
       'GET /api/stats',
       'GET /api/userstore?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
