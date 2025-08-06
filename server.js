@@ -849,12 +849,12 @@ app.get('/api/stats', async (req, res) => {
  *           default: qt_exp
  *         description: Campo para ordenação
  *       - in: query
-         name: sortOrder
-         schema:
-           type: string
-           enum: [asc, desc]
-           default: desc
-         description: Ordem da classificação (asc ou desc)
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Ordem da classificação (asc ou desc)
  *       - in: query
  *         name: page
  *         schema:
