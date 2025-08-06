@@ -473,7 +473,11 @@ app.get('/api/clans', async (req, res) => {
       'ElimProWinRate': 'ElimProWinRate',
       'CTFWinRate': 'CTFWinRate',
       'CaptureFlagCnt': 'c.CaptureFlagCnt',
-      'ForfeitedCnt': 'c.ForfeitedCnt'
+      'ForfeitedCnt': 'c.ForfeitedCnt',
+      'CTFWinCnt': 'c.CTFWinCnt',
+      'ElimProWinCnt': 'c.TSVWinCnt',
+      'SNDWinCnt': 'c.TMMWinCnt',
+      'ElimWinCnt': 'c.TDMWinCnt'
     };
     
     const sortField = allowedSortFields[sortBy] || 'c.Exp';
@@ -838,6 +842,20 @@ app.get('/api/stats', async (req, res) => {
  *           type: string
  *         description: Nickname do jogador (busca parcial)
  *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [qt_partidas, wincnt, losecnt, killcnt, HeadshotCnt, HeadshotRate, deadcnt, KDR, mostkillcnt, qt_exp, qt_gp]
+ *           default: qt_exp
+ *         description: Campo para ordenação
+ *       - in: query
+         name: sortOrder
+         schema:
+           type: string
+           enum: [asc, desc]
+           default: desc
+         description: Ordem da classificação (asc ou desc)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -859,8 +877,26 @@ app.get('/api/gamemode-stats', async (req, res) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
   try {
-    const { oiduser, nickname, page = 1, size = 20 } = req.query;
+    const { oiduser, nickname, sortBy = 'qt_exp', sortOrder = 'desc', page = 1, size = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(size);
+    
+    // Validar campos de ordenação permitidos
+    const allowedSortFields = {
+      'qt_partidas': '(g.wincnt + g.losecnt)',
+      'wincnt': 'g.wincnt',
+      'losecnt': 'g.losecnt',
+      'killcnt': 'g.killcnt',
+      'HeadshotCnt': 'HeadshotCnt',
+      'HeadshotRate': 'HeadshotRate',
+      'deadcnt': 'g.deadcnt',
+      'KDR': 'KDR',
+      'mostkillcnt': 'g.mostkillcnt',
+      'qt_exp': 'qt_exp',
+      'qt_gp': 'qt_gp'
+    };
+    
+    const sortField = allowedSortFields[sortBy] || 'qt_exp';
+    const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
     
     let query = `
       select 
@@ -926,7 +962,14 @@ app.get('/api/gamemode-stats', async (req, res) => {
       query += ` WHERE ` + whereConditions.join(' AND ');
     }
     
-    query += ` ORDER BY qt_exp DESC`;
+    // Aplicar ordenação dinâmica
+    query += ` ORDER BY ${sortField} ${order}`;
+    
+    // Se não estiver ordenando por qt_exp, adicionar qt_exp como critério secundário
+    if (sortBy !== 'qt_exp') {
+      query += `, qt_exp DESC`;
+    }
+    
     query += ` OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`;
 
     const results = await executeQuery(query, params);
@@ -1189,7 +1232,7 @@ app.get('/', (req, res) => {
       'GET /api/clans?clanname=<clanname>&nickname=<nickname>&sortBy=<sortBy>&sortOrder=<sortOrder>&page=<page>&size=<size>',
       'GET /api/clanmembers?clanname=<clanname>&nickname=<nickname>&page=<page>&size=<size>',
       'GET /api/ranking?type=<exp|kills|wins|money|headshots>&orderby=<desc|asc>&nickname=<nickname>&page=<page>&size=<size>',
-      'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
+      'GET /api/gamemode-stats?oiduser=<oiduser>&nickname=<nickname>&sortBy=<sortBy>&orderBy=<orderBy>&page=<page>&size=<size>',
       'GET /api/player-matches?oiduser=<oiduser>&nickname=<nickname>&startDate=<startDate>&endDate=<endDate>&page=<page>&size=<size>',
       'GET /api/stats',
       'GET /api/userstore?oiduser=<oiduser>&nickname=<nickname>&page=<page>&size=<size>',
